@@ -7,27 +7,25 @@ import plotly.express as px
 # --- Cargar datos ---
 df = pd.read_csv("crime_dataset_india.csv")
 
-# --- Preparar fechas ---
-df['Month'] = df['Month'].astype(str).str.zfill(2)  # Asegura formato '01'...'12'
-df['Year'] = df['Year'].astype(str)
-df['Date'] = pd.to_datetime(df['Year'] + '-' + df['Month'])
+# Asegurar nombres limpios
+df.columns = df.columns.str.strip()
 
-# --- Inicializar la app ---
+# Inicializar app
 app = dash.Dash(__name__)
 app.title = "Crime Dashboard India"
 
-# --- Layout ---
+# Layout
 app.layout = html.Div(style={'font-family': 'Arial'}, children=[
-    html.H1("🔎 Crime Dashboard - India", style={'textAlign': 'center', 'margin': '20px'}),
+    html.H1("🔎 Crime Dashboard - India", style={'textAlign': 'center'}),
 
     html.Div([
         html.Div([
             html.Label("Tipo de crimen"),
             dcc.Dropdown(
                 id='crime_type',
-                options=[{'label': crime, 'value': crime} for crime in df['Crime Head'].unique()],
+                options=[{'label': c, 'value': c} for c in sorted(df['Crime Head'].unique())],
                 value=df['Crime Head'].unique()[0]
-            ),
+            )
         ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
 
         html.Div([
@@ -36,7 +34,7 @@ app.layout = html.Div(style={'font-family': 'Arial'}, children=[
                 id='year',
                 options=[{'label': y, 'value': y} for y in sorted(df['Year'].unique())],
                 value=df['Year'].unique()[0]
-            ),
+            )
         ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
 
         html.Div([
@@ -60,11 +58,11 @@ app.layout = html.Div(style={'font-family': 'Arial'}, children=[
                 value=[]
             )
         ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
-    ], style={'padding': '0 20px'}),
+    ]),
 
     html.Div([
         html.Div([
-            dcc.Graph(id='line_graph')
+            dcc.Graph(id='trend_graph')
         ], style={'width': '50%', 'display': 'inline-block'}),
 
         html.Div([
@@ -83,9 +81,9 @@ app.layout = html.Div(style={'font-family': 'Arial'}, children=[
     ]),
 ])
 
-# --- Callback principal ---
+# Callback
 @app.callback(
-    [Output('line_graph', 'figure'),
+    [Output('trend_graph', 'figure'),
      Output('bar_chart', 'figure'),
      Output('pie_chart', 'figure'),
      Output('scatter_chart', 'figure')],
@@ -95,52 +93,33 @@ app.layout = html.Div(style={'font-family': 'Arial'}, children=[
      Input('dark_mode', 'value')]
 )
 def update_graphs(crime_type, year, chart_type, dark_mode):
-    # Tema visual
     template = 'plotly_dark' if 'on' in dark_mode else 'plotly_white'
 
-    # Filtrar datos
-    df_filtered = df[df['Crime Head'] == crime_type]
-    df_year = df_filtered[df_filtered['Year'] == year]
+    # Filtro por tipo de crimen y año
+    filtered_df = df[df['Crime Head'] == crime_type]
+    year_df = df[(df['Year'] == year) & (df['Crime Head'] == crime_type)]
 
-    # --- Gráfico 1: Línea de tiempo con slider ---
-    line_fig = px.line(df_filtered, x='Date', y='Cases Reported', title='Evolución mensual del crimen',
-                       template=template)
-    line_fig.update_layout(
-        xaxis=dict(
-            rangeselector=dict(
-                buttons=list([
-                    dict(count=6, label="6m", step="month", stepmode="backward"),
-                    dict(count=1, label="1y", step="year", stepmode="backward"),
-                    dict(step="all")
-                ])
-            ),
-            rangeslider=dict(visible=True),
-            type="date"
-        )
-    )
+    # 1. Evolución por año (serie de tiempo por año)
+    trend_data = filtered_df.groupby('Year')['Cases Reported'].sum().reset_index()
+    fig1 = px.line(trend_data, x='Year', y='Cases Reported', title='Crímenes por Año', template=template)
 
-    # --- Gráfico 2: Barras o líneas por región ---
-    bar_data = df_year.groupby('Region')['Cases Reported'].sum().reset_index()
+    # 2. Gráfico de barras/linea por región
+    region_data = year_df.groupby('Region')['Cases Reported'].sum().reset_index()
     if chart_type == 'bar':
-        bar_fig = px.bar(bar_data, x='Region', y='Cases Reported', title='Crímenes por región', template=template)
+        fig2 = px.bar(region_data, x='Region', y='Cases Reported', title='Casos por Región', template=template)
     else:
-        bar_fig = px.line(bar_data, x='Region', y='Cases Reported', title='Crímenes por región', template=template)
+        fig2 = px.line(region_data, x='Region', y='Cases Reported', title='Casos por Región', template=template)
 
-    # --- Gráfico 3: Pie por estado ---
-    pie_data = df_year.groupby('State/UT')['Cases Reported'].sum().reset_index()
-    pie_fig = px.pie(pie_data, names='State/UT', values='Cases Reported', title='Distribución por estado',
-                     template=template)
+    # 3. Gráfico de torta por estado
+    state_data = year_df.groupby('State/UT')['Cases Reported'].sum().reset_index()
+    fig3 = px.pie(state_data, names='State/UT', values='Cases Reported', title='Distribución por Estado', template=template)
 
-    # --- Gráfico 4: Dispersión (casos vs población si existe, o región) ---
-    if 'Population' in df.columns:
-        scatter_fig = px.scatter(df_year, x='Population', y='Cases Reported', color='Region',
-                                 title='Casos vs Población', size='Cases Reported', template=template)
-    else:
-        scatter_fig = px.scatter(df_year, x='Region', y='Cases Reported', color='Region',
-                                 title='Casos por Región (Distribución)', template=template)
+    # 4. Dispersión: Casos vs Regiones
+    fig4 = px.scatter(year_df, x='Region', y='Cases Reported', color='Region', 
+                      title='Distribución de casos por Región', template=template)
 
-    return line_fig, bar_fig, pie_fig, scatter_fig
+    return fig1, fig2, fig3, fig4
 
-# --- Ejecutar servidor ---
+# Ejecutar servidor
 if __name__ == '__main__':
     app.run_server(debug=True)
