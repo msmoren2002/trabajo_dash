@@ -4,51 +4,73 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.express as px
 
-# --- Cargar datos ---
-df = pd.read_csv("crime_dataset_india.csv")
+# Cargar datos
+try:
+    df = pd.read_csv("crime_dataset_india.csv", sep=";")
+except FileNotFoundError:
+    print("Error: No se encontró el archivo 'crime_dataset_india.csv'")
+    exit()
 
-# Asegurar nombres limpios
+# Validar columnas
+required_columns = ['City', 'Crime Description', 'Victim Gender', 'Weapon Used', 'Date of Occurrence']
+if not all(col in df.columns for col in required_columns):
+    raise ValueError("Faltan columnas requeridas en el dataset")
+
+# Limpiar columnas
 df.columns = df.columns.str.strip()
+
+# Convertir fecha
+df['Date of Occurrence'] = pd.to_datetime(df['Date of Occurrence'], errors='coerce')
+df = df.dropna(subset=['Date of Occurrence'])
+df['Year'] = df['Date of Occurrence'].dt.year
+
+# Normalizar datos
+df['Victim Gender'] = df['Victim Gender'].str.lower().str.strip()
+df['Weapon Used'] = df['Weapon Used'].str.lower().str.strip()
 
 # Inicializar app
 app = dash.Dash(__name__)
-app.title = "Crime Dashboard India"
+app.title = "India Crime Dashboard"
+
+# Opciones para dropdowns
+crime_options = sorted(df['Crime Description'].dropna().unique())
+default_crime = crime_options[0] if crime_options else None
+year_options = sorted(df['Year'].dropna().unique())
+default_year = year_options[-1] if year_options else None
 
 # Layout
-app.layout = html.Div(style={'font-family': 'Arial'}, children=[
-    html.H1("🔎 Crime Dashboard - India", style={'textAlign': 'center'}),
+app.layout = html.Div([
+    html.H1("🔍 India Crime Dashboard", style={'textAlign': 'center'}),
+    html.Div(id='error_message', style={'color': 'red', 'textAlign': 'center'}),
 
     html.Div([
         html.Div([
-            html.Label("Tipo de crimen"),
+            html.Label("Descripción del crimen"),
             dcc.Dropdown(
-                id='crime_type',
-                options=[{'label': c, 'value': c} for c in sorted(df['Crime Head'].unique())],
-                value=df['Crime Head'].unique()[0]
+                id='crime_desc',
+                options=[{'label': i, 'value': i} for i in crime_options],
+                value=default_crime
             )
-        ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
+        ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
 
         html.Div([
             html.Label("Año"),
             dcc.Dropdown(
                 id='year',
-                options=[{'label': y, 'value': y} for y in sorted(df['Year'].unique())],
-                value=df['Year'].unique()[0]
+                options=[{'label': y, 'value': y} for y in year_options],
+                value=default_year
             )
-        ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
+        ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
 
         html.Div([
-            html.Label("Tipo de gráfico (barra o línea)"),
+            html.Label("Tipo de gráfico"),
             dcc.RadioItems(
                 id='chart_type',
-                options=[
-                    {'label': '📊 Barras', 'value': 'bar'},
-                    {'label': '📈 Línea', 'value': 'line'}
-                ],
+                options=[{'label': 'Barras', 'value': 'bar'}, {'label': 'Línea', 'value': 'line'}],
                 value='bar',
-                labelStyle={'display': 'inline-block', 'margin-right': '10px'}
+                labelStyle={'display': 'inline-block'}
             )
-        ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
+        ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
 
         html.Div([
             html.Label("Modo oscuro"),
@@ -57,69 +79,63 @@ app.layout = html.Div(style={'font-family': 'Arial'}, children=[
                 options=[{'label': 'Activar', 'value': 'on'}],
                 value=[]
             )
-        ], style={'width': '24%', 'display': 'inline-block', 'padding': '10px'}),
-    ]),
+        ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'})
+    ], style={'padding': '10px'}),
 
     html.Div([
-        html.Div([
-            dcc.Graph(id='trend_graph')
-        ], style={'width': '50%', 'display': 'inline-block'}),
-
-        html.Div([
-            dcc.Graph(id='bar_chart')
-        ], style={'width': '50%', 'display': 'inline-block'}),
+        html.Div([dcc.Graph(id='graph1')], style={'width': '48%', 'display': 'inline-block', 'margin': '1%'}),
+        html.Div([dcc.Graph(id='graph2')], style={'width': '48%', 'display': 'inline-block', 'margin': '1%'}),
     ]),
-
     html.Div([
-        html.Div([
-            dcc.Graph(id='pie_chart')
-        ], style={'width': '50%', 'display': 'inline-block'}),
-
-        html.Div([
-            dcc.Graph(id='scatter_chart')
-        ], style={'width': '50%', 'display': 'inline-block'}),
+        html.Div([dcc.Graph(id='graph3')], style={'width': '48%', 'display': 'inline-block', 'margin': '1%'}),
+        html.Div([dcc.Graph(id='graph4')], style={'width': '48%', 'display': 'inline-block', 'margin': '1%'}),
     ]),
 ])
 
 # Callback
 @app.callback(
-    [Output('trend_graph', 'figure'),
-     Output('bar_chart', 'figure'),
-     Output('pie_chart', 'figure'),
-     Output('scatter_chart', 'figure')],
-    [Input('crime_type', 'value'),
+    [Output('graph1', 'figure'),
+     Output('graph2', 'figure'),
+     Output('graph3', 'figure'),
+     Output('graph4', 'figure'),
+     Output('error_message', 'children')],
+    [Input('crime_desc', 'value'),
      Input('year', 'value'),
      Input('chart_type', 'value'),
      Input('dark_mode', 'value')]
 )
-def update_graphs(crime_type, year, chart_type, dark_mode):
+def update_graphs(crime_desc, year, chart_type, dark_mode):
     template = 'plotly_dark' if 'on' in dark_mode else 'plotly_white'
 
-    # Filtro por tipo de crimen y año
-    filtered_df = df[df['Crime Head'] == crime_type]
-    year_df = df[(df['Year'] == year) & (df['Crime Head'] == crime_type)]
+    dff = df[(df['Crime Description'] == crime_desc) & (df['Year'] == year)]
+    if dff.empty:
+        empty_fig = px.scatter(title="No hay datos disponibles", template=template)
+        return empty_fig, empty_fig, empty_fig, empty_fig, "No hay datos para la selección actual"
 
-    # 1. Evolución por año (serie de tiempo por año)
-    trend_data = filtered_df.groupby('Year')['Cases Reported'].sum().reset_index()
-    fig1 = px.line(trend_data, x='Year', y='Cases Reported', title='Crímenes por Año', template=template)
+    # Gráfico 1: frecuencia por ciudad
+    city_counts = dff['City'].value_counts().nlargest(10).reset_index()
+    city_counts.columns = ['City', 'Count']
+    fig1 = px.bar(city_counts, x='City', y='Count', title='Top 10 ciudades con más crímenes', template=template)
 
-    # 2. Gráfico de barras/linea por región
-    region_data = year_df.groupby('Region')['Cases Reported'].sum().reset_index()
+    # Gráfico 2: evolución por año
+    yearly = df[df['Crime Description'] == crime_desc].groupby('Year').size().reset_index(name='Count')
     if chart_type == 'bar':
-        fig2 = px.bar(region_data, x='Region', y='Cases Reported', title='Casos por Región', template=template)
+        fig2 = px.bar(yearly, x='Year', y='Count', title='Evolución por año', template=template)
     else:
-        fig2 = px.line(region_data, x='Region', y='Cases Reported', title='Casos por Región', template=template)
+        fig2 = px.line(yearly, x='Year', y='Count', title='Evolución por año', template=template)
 
-    # 3. Gráfico de torta por estado
-    state_data = year_df.groupby('State/UT')['Cases Reported'].sum().reset_index()
-    fig3 = px.pie(state_data, names='State/UT', values='Cases Reported', title='Distribución por Estado', template=template)
+    # Gráfico 3: por género de la víctima
+    gender_counts = dff['Victim Gender'].value_counts().reset_index()
+    gender_counts.columns = ['Gender', 'Count']
+    fig3 = px.pie(gender_counts, names='Gender', values='Count', title='Distribución por género', template=template)
 
-    # 4. Dispersión: Casos vs Regiones
-    fig4 = px.scatter(year_df, x='Region', y='Cases Reported', color='Region', 
-                      title='Distribución de casos por Región', template=template)
+    # Gráfico 4: arma usada
+    weapon = dff['Weapon Used'].value_counts().nlargest(10).reset_index()
+    weapon.columns = ['Weapon', 'Count']
+    fig4 = px.bar(weapon, x='Weapon', y='Count', title='Armas más usadas', template=template)
 
-    return fig1, fig2, fig3, fig4
+    return fig1, fig2, fig3, fig4, ""
 
-# Ejecutar servidor
+# Ejecutar app
 if __name__ == '__main__':
     app.run_server(debug=True)
