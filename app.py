@@ -3,10 +3,11 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.express as px
+import os
 
 # Cargar datos
 try:
-    df = pd.read_csv("crime_dataset_india.csv", sep=";")
+    df = pd.read_csv(os.path.join(os.path.dirname(__file__), "crime_dataset_india.csv"), sep=";")
 except FileNotFoundError:
     print("Error: No se encontró el archivo 'crime_dataset_india.csv'")
     exit()
@@ -31,6 +32,7 @@ df['Weapon Used'] = df['Weapon Used'].str.lower().str.strip()
 # Inicializar app
 app = dash.Dash(__name__)
 app.title = "India Crime Dashboard"
+server = app.server  # Exponer Flask server para Gunicorn
 
 # Opciones para dropdowns
 crime_options = sorted(df['Crime Description'].dropna().unique())
@@ -52,7 +54,6 @@ app.layout = html.Div([
                 value=default_crime
             )
         ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
-
         html.Div([
             html.Label("Año"),
             dcc.Dropdown(
@@ -61,7 +62,6 @@ app.layout = html.Div([
                 value=default_year
             )
         ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
-
         html.Div([
             html.Label("Tipo de gráfico"),
             dcc.RadioItems(
@@ -71,7 +71,6 @@ app.layout = html.Div([
                 labelStyle={'display': 'inline-block'}
             )
         ], style={'width': '24%', 'display': 'inline-block', 'margin': '1%'}),
-
         html.Div([
             html.Label("Modo oscuro"),
             dcc.Checklist(
@@ -136,6 +135,7 @@ def update_graphs(crime_desc, year, chart_type, dark_mode):
 
     return fig1, fig2, fig3, fig4, ""
 
-# Ejecutar app
+# Para desarrollo únicamente (no necesario para Gunicorn)
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    port = int(os.environ.get("PORT", 8000))
+    app.run_server(host='0.0.0.0', port=port, debug=True)
